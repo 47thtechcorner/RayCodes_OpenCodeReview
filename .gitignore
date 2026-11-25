@@ -1,0 +1,8 @@
+assets/
+models/
+.venv/
+__pycache__/
+*.log
+.env
+
+.agents/

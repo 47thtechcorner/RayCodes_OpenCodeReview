@@ -1,0 +1,38 @@
+diff --git a/services/order_service.py b/services/order_service.py
+index a41bc23..e901a44 100644
+--- a/services/order_service.py
++++ b/services/order_service.py
+@@ -210,12 +210,18 @@ class OrderService:
+     async def place_order(self, customer_id: str, item_id: str, quantity: int):
+         order_record = Order(customer_id=customer_id, item_id=item_id, qty=quantity)
+         
++        # NEW: Direct inventory reserve call
++        # CRITICAL BUG: Inventory is decremented outside atomic database transaction block.
++        # If db_session.commit() fails due to constraint or network partition,
++        # stock remains depleted in inventory_service with no automated rollback coordinator!
++        await self.inventory_client.reserve_stock(item_id, quantity)
++        
+         async with self.db_session.begin():
+-            await self.inventory_client.reserve_stock(item_id, quantity)
+             self.db_session.add(order_record)
++            await self.db_session.commit()
+             
+         return order_record.id
+diff --git a/services/inventory_client.py b/services/inventory_client.py
+new file mode 100644
+index 0000000..f34d192
+--- /dev/null
++++ b/services/inventory_client.py
+@@ -0,0 +1,14 @@
++import httpx
++
++class InventoryClient:
++    def __init__(self, endpoint: str):
++        self.endpoint = endpoint
++
++    async def reserve_stock(self, item_id: str, qty: int):
++        async with httpx.AsyncClient() as client:
++            res = await client.post(f"{self.endpoint}/reserve", json={"item": item_id, "qty": qty})
++            res.raise_for_status()
++            return res.json()
+
